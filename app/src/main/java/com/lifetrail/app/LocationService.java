@@ -60,54 +60,79 @@ public class LocationService extends Service {
 
     private void processLocation(Location location) {
 
-        long now = System.currentTimeMillis();
+    long now = System.currentTimeMillis();
 
-        float speed = location.hasSpeed()
-                ? location.getSpeed()
-                : 0f;
+    float speed = location.hasSpeed()
+            ? location.getSpeed()
+            : 0f;
 
-        double distanceMeters = 0;
+    double distanceMeters = 0;
 
-        if (lastLocation != null) {
-            distanceMeters = lastLocation.distanceTo(location);
+    if (lastLocation != null) {
 
-            // Ignore very small GPS jumps/noise.
-            if (distanceMeters < 3) {
-                distanceMeters = 0;
+        distanceMeters = lastLocation.distanceTo(location);
+
+        // Ignore very small GPS jumps/noise.
+        if (distanceMeters < 3) {
+            distanceMeters = 0;
+        }
+
+        double totalDistance =
+                prefs.getFloat("distance_meters", 0f)
+                + distanceMeters;
+
+        long movingSeconds =
+                prefs.getLong("moving_seconds", 0);
+
+        if (lastTime > 0) {
+
+            long seconds =
+                    (now - lastTime) / 1000;
+
+            // Consider the user moving
+            // faster than approximately 0.8 m/s.
+            if (speed >= 0.8f
+                    && seconds > 0
+                    && seconds < 120) {
+
+                movingSeconds += seconds;
             }
-
-            double totalDistance =
-                    prefs.getFloat("distance", 0f) + (float) distanceMeters;
-
-            long movingSeconds =
-                    prefs.getLong("moving_seconds", 0);
-
-            if (lastTime > 0) {
-                long seconds = (now - lastTime) / 1000;
-
-                // Consider the user moving when GPS reports movement
-                // faster than approximately 0.8 m/s.
-                if (speed >= 0.8f && seconds > 0 && seconds < 120) {
-                    movingSeconds += seconds;
-                }
-            }
-
-            prefs.edit()
-                    .putFloat("distance", (float) totalDistance)
-                    .putLong("moving_seconds", movingSeconds)
-                    .apply();
         }
 
         prefs.edit()
-                .putFloat("last_lat", (float) location.getLatitude())
-                .putFloat("last_lon", (float) location.getLongitude())
-                .putFloat("last_speed", speed)
-                .putLong("last_location_time", now)
+                .putFloat(
+                        "distance_meters",
+                        (float) totalDistance
+                )
+                .putLong(
+                        "moving_seconds",
+                        movingSeconds
+                )
                 .apply();
-
-        lastLocation = location;
-        lastTime = now;
     }
+
+    prefs.edit()
+            .putFloat(
+                    "last_lat",
+                    (float) location.getLatitude()
+            )
+            .putFloat(
+                    "last_lon",
+                    (float) location.getLongitude()
+            )
+            .putFloat(
+                    "last_speed",
+                    speed
+            )
+            .putLong(
+                    "last_location_time",
+                    now
+            )
+            .apply();
+
+    lastLocation = location;
+    lastTime = now;
+}
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
