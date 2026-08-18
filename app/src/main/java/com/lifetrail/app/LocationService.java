@@ -22,19 +22,21 @@ import com.google.android.gms.location.LocationResult;
 import com.google.android.gms.location.LocationServices;
 import com.google.android.gms.location.Priority;
 
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
+
 public class LocationService extends Service {
 
     private static final String CHANNEL = "lifetrail_tracking";
     private static final String PREFS = "lifetrail_data";
-    private static final String KEY_DISTANCE = "distance_meters";
-    private static final String KEY_MOVING = "moving_seconds";
-    private static final String KEY_LAST_LAT = "last_lat";
-    private static final String KEY_LAST_LON = "last_lon";
-    private static final String KEY_LAST_TIME = "last_time";
 
     private FusedLocationProviderClient client;
-    private LocationCallback locationCallback;
+    private LocationCallback callback;
     private SharedPreferences prefs;
+
+    private Location lastLocation;
+    private long lastTime = 0;
 
     @Override
     public void onCreate() {
@@ -42,75 +44,69 @@ public class LocationService extends Service {
 
         createChannel();
 
-        client = LocationServices.getFusedLocationProviderClient(this);
         prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        client = LocationServices.getFusedLocationProviderClient(this);
 
-        locationCallback = new LocationCallback() {
+        callback = new LocationCallback() {
             @Override
             public void onLocationResult(LocationResult result) {
+
                 for (Location location : result.getLocations()) {
-                    recordLocation(location);
+                    processLocation(location);
                 }
             }
         };
     }
 
-    private void recordLocation(Location location) {
+    private void processLocation(Location location) {
 
-        if (!location.hasAccuracy() || location.getAccuracy() > 75) {
-            return;
-        }
+        long now = System.currentTimeMillis();
 
-        double lastLat = prefs.getFloat(KEY_LAST_LAT, Float.NaN);
-        double lastLon = prefs.getFloat(KEY_LAST_LON, Float.NaN);
-        long lastTime = prefs.getLong(KEY_LAST_TIME, 0);
+        float speed = location.hasSpeed()
+                ? location.getSpeed()
+                : 0f;
 
-        if (!Double.isNaN(lastLat) && !Double.isNaN(lastLon)) {
+        double distanceMeters = 0;
 
-            float[] distance = new float[1];
+        if (lastLocation != null) {
+            distanceMeters = lastLocation.distanceTo(location);
 
-            Location.distanceBetween(
-                    lastLat,
-                    lastLon,
-                    location.getLatitude(),
-                    location.getLongitude(),
-                    distance
-            );
-
-            float meters = distance[0];
-
-            // Ignore tiny GPS jitter and obviously large jumps.
-            if (meters >= 5 && meters <= 200) {
-
-                float oldDistance =
-                        prefs.getFloat(KEY_DISTANCE, 0f);
-
-                long movingSeconds =
-                        prefs.getLong(KEY_MOVING, 0);
-
-                long currentTime = location.getTime();
-
-                if (lastTime > 0 && currentTime >= lastTime) {
-                    long seconds =
-                            (currentTime - lastTime) / 1000;
-
-                    if (seconds <= 120) {
-                        movingSeconds += seconds;
-                    }
-                }
-
-                prefs.edit()
-                        .putFloat(KEY_DISTANCE, oldDistance + meters)
-                        .putLong(KEY_MOVING, movingSeconds)
-                        .apply();
+            // Ignore very small GPS jumps/noise.
+            if (distanceMeters < 3) {
+                distanceMeters = 0;
             }
+
+            double totalDistance =
+                    prefs.getFloat("distance", 0f) + (float) distanceMeters;
+
+            long movingSeconds =
+                    prefs.getLong("moving_seconds", 0);
+
+            if (lastTime > 0) {
+                long seconds = (now - lastTime) / 1000;
+
+                // Consider the user moving when GPS reports movement
+                // faster than approximately 0.8 m/s.
+                if (speed >= 0.8f && seconds > 0 && seconds < 120) {
+                    movingSeconds += seconds;
+                }
+            }
+
+            prefs.edit()
+                    .putFloat("distance", (float) totalDistance)
+                    .putLong("moving_seconds", movingSeconds)
+                    .apply();
         }
 
         prefs.edit()
-                .putFloat(KEY_LAST_LAT, (float) location.getLatitude())
-                .putFloat(KEY_LAST_LON, (float) location.getLongitude())
-                .putLong(KEY_LAST_TIME, location.getTime())
+                .putFloat("last_lat", (float) location.getLatitude())
+                .putFloat("last_lon", (float) location.getLongitude())
+                .putFloat("last_speed", speed)
+                .putLong("last_location_time", now)
                 .apply();
+
+        lastLocation = location;
+        lastTime = now;
     }
 
     @Override
@@ -119,7 +115,7 @@ public class LocationService extends Service {
         Notification notification =
                 new NotificationCompat.Builder(this, CHANNEL)
                         .setContentTitle("LifeTrail is tracking")
-                        .setContentText("Recording your movement privately on this device.")
+                        .setContentText("Recording your movement privately")
                         .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                         .setOngoing(true)
                         .build();
@@ -129,9 +125,9 @@ public class LocationService extends Service {
         LocationRequest request =
                 new LocationRequest.Builder(
                         Priority.PRIORITY_HIGH_ACCURACY,
-                        10000
+                        5000
                 )
-                        .setMinUpdateIntervalMillis(5000)
+                        .setMinUpdateIntervalMillis(3000)
                         .setMinUpdateDistanceMeters(5)
                         .build();
 
@@ -143,12 +139,13 @@ public class LocationService extends Service {
                         this,
                         Manifest.permission.ACCESS_COARSE_LOCATION
                 ) != PackageManager.PERMISSION_GRANTED) {
-            return START_NOT_STICKY;
+
+            return START_STICKY;
         }
 
         client.requestLocationUpdates(
                 request,
-                locationCallback,
+                callback,
                 getMainLooper()
         );
 
@@ -175,8 +172,8 @@ public class LocationService extends Service {
     @Override
     public void onDestroy() {
 
-        if (client != null && locationCallback != null) {
-            client.removeLocationUpdates(locationCallback);
+        if (client != null && callback != null) {
+            client.removeLocationUpdates(callback);
         }
 
         super.onDestroy();
