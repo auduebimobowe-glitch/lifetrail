@@ -1,0 +1,14 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color gold
+color white
+drawable ic_launcher_foreground
+id appTitle
+id friendsButton
+id goLive
+id mapPlaceholder
+id settingsButton
+layout layout_main
+string app_name
+style Theme.LifeTrail

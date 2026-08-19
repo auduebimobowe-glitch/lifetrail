@@ -1,0 +1,10 @@
+[
+    {
+        "merged": "com.lifetrail.app-debug-33:/layout_layout_main.xml.flat",
+        "source": "com.lifetrail.app-main-35:/layout/layout_main.xml"
+    },
+    {
+        "merged": "com.lifetrail.app-debug-33:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.lifetrail.app-main-35:/drawable/ic_launcher_foreground.xml"
+    }
+]
